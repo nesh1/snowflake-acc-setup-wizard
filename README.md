@@ -2,6 +2,9 @@
 
 A single-file Streamlit application that automates provisioning of databases, roles, and an admin user on a fresh Snowflake trial account.
 
+# access the streamlit comminity domain 
+https://app-acc-setup-wizard-hkutz3vrkle6sx3y3gdf2l.streamlit.app/
+
 ---
 
 ## Features
