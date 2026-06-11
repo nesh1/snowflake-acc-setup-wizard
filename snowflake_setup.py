@@ -174,6 +174,7 @@ defaults = {
     "conn": None,
     "account": "",
     "username": "",
+    "default_dbs_selected": {"DEV": True, "QA": True, "PROD": True},  # checkboxes for default DBs
     "extra_dbs": [],            # additional DB names (without suffix)
     "extra_dbs_schemas": {},    # {db_name: True/False} — whether to create default schemas
     "deploy_logs": [],
@@ -319,17 +320,22 @@ elif st.session_state.step == 2:
     # ── Default databases ──
     st.markdown('<div class="card-title">🗄️ Default Databases</div>', unsafe_allow_html=True)
     st.info(
-        "The following 3 databases will always be created. "
+        "Select which default databases to create. At least one must be selected. "
         "The **`_DB`** suffix is automatically appended to every database name.",
         icon="ℹ️",
     )
     dcols = st.columns(3)
     for col, name in zip(dcols, DEFAULT_DBS):
+        current = st.session_state.default_dbs_selected.get(name, True)
+        checked = col.checkbox(f"**{name}_DB**", value=current, key=f"defdb_{name}")
+        st.session_state.default_dbs_selected[name] = checked
+        badge_cls = "badge-blue" if checked else "badge-yellow"
+        badge_lbl = "✅ Will be created" if checked else "⏭️ Will be skipped"
         col.markdown(
-            f'<div class="card" style="text-align:center">'
-            f'<div style="font-size:1.6rem">🗄️</div>'
-            f'<div style="color:#e2e8f0;font-weight:700;margin-top:6px">{name}_DB</div>'
-            f'<div style="margin-top:6px"><span class="badge badge-blue">Default</span></div>'
+            f'<div class="card" style="text-align:center;padding:14px">'
+            f'<div style="font-size:1.5rem">{"🗄️" if checked else "🚫"}</div>'
+            f'<div style="color:{"#e2e8f0" if checked else "#6b7280"};font-weight:700;margin-top:4px">{name}_DB</div>'
+            f'<div style="margin-top:8px"><span class="badge {badge_cls}">{badge_lbl}</span></div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -404,28 +410,43 @@ elif st.session_state.step == 2:
     st.markdown("---")
 
     # ── Deployment summary ──
-    all_dbs = DEFAULT_DBS + st.session_state.extra_dbs
+    selected_default_dbs = [db for db in DEFAULT_DBS if st.session_state.default_dbs_selected.get(db, True)]
+    all_dbs = selected_default_dbs + st.session_state.extra_dbs
     st.markdown('<div class="card-title">📋 Deployment Summary</div>', unsafe_allow_html=True)
 
-    for db in all_dbs:
-        is_default  = db in DEFAULT_DBS
-        has_schemas = is_default or st.session_state.extra_dbs_schemas.get(db, True)
-        badge       = "Default" if is_default else "Custom"
-        badge_cls   = "badge-blue" if is_default else "badge-yellow"
-        schema_note = ", ".join([f"`{s}`" for s in DEFAULT_SCHEMAS]) if has_schemas else "_no schemas_"
-        st.markdown(
-            f"**{db}_DB** <span class='badge {badge_cls}'>{badge}</span>  "
-            f"— `ROLE_{db}_DB_ADMIN` · `ROLE_{db}_DB_RO`  "
-            f"— Schemas: {schema_note}",
-            unsafe_allow_html=True,
-        )
-        if has_schemas:
-            for schema in DEFAULT_SCHEMAS:
+    if not all_dbs:
+        st.error("⚠️ No databases selected. Please select at least one database to proceed.")
+    else:
+        for db in all_dbs:
+            is_default  = db in DEFAULT_DBS
+            has_schemas = is_default or st.session_state.extra_dbs_schemas.get(db, True)
+            badge       = "Default" if is_default else "Custom"
+            badge_cls   = "badge-blue" if is_default else "badge-yellow"
+            schema_note = ", ".join([f"`{s}`" for s in DEFAULT_SCHEMAS]) if has_schemas else "_no schemas_"
+            st.markdown(
+                f"**{db}_DB** <span class='badge {badge_cls}'>{badge}</span>  "
+                f"— `ROLE_{db}_DB_ADMIN` · `ROLE_{db}_DB_RO`  "
+                f"— Schemas: {schema_note}",
+                unsafe_allow_html=True,
+            )
+            if has_schemas:
+                for schema in DEFAULT_SCHEMAS:
+                    st.markdown(
+                        f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{schema}` — "
+                        f"`ROLE_{db}_{schema}_RW` · `ROLE_{db}_{schema}_RO`",
+                        unsafe_allow_html=True,
+                    )
+
+        # Skipped default DBs
+        skipped = [db for db in DEFAULT_DBS if not st.session_state.default_dbs_selected.get(db, True)]
+        if skipped:
+            st.markdown("")
+            for db in skipped:
                 st.markdown(
-                    f"&nbsp;&nbsp;&nbsp;&nbsp;↳ `{schema}` — "
-                    f"`ROLE_{db}_{schema}_RW` · `ROLE_{db}_{schema}_RO`",
+                    f"~~{db}_DB~~ <span class='badge badge-yellow'>⏭️ Skipped</span>",
                     unsafe_allow_html=True,
                 )
+
     st.markdown("**admin_user** — ACCOUNTADMIN + RSA key-pair auth")
 
     st.markdown("")
@@ -433,7 +454,13 @@ elif st.session_state.step == 2:
     if col_back.button("← Back"):
         st.session_state.step = 1
         st.rerun()
-    if col_go.button("🚀 Start Deployment", type="primary", use_container_width=True):
+    deploy_disabled = len(all_dbs) == 0
+    if col_go.button(
+        "🚀 Start Deployment",
+        type="primary",
+        use_container_width=True,
+        disabled=deploy_disabled,
+    ):
         st.session_state.step = 3
         st.rerun()
 
@@ -442,7 +469,8 @@ elif st.session_state.step == 2:
 # ─────────────────────────────────────────────
 elif st.session_state.step == 3:
 
-    all_dbs = DEFAULT_DBS + st.session_state.extra_dbs
+    selected_default_dbs = [db for db in DEFAULT_DBS if st.session_state.default_dbs_selected.get(db, True)]
+    all_dbs = selected_default_dbs + st.session_state.extra_dbs
 
     if not st.session_state.deployment_done:
         st.markdown('<div class="card-title">⚙️ Deploying Objects…</div>', unsafe_allow_html=True)
@@ -453,9 +481,9 @@ elif st.session_state.step == 3:
         cur = conn.cursor()
 
         # ── Use ACCOUNTADMIN ──
-        # Calculate total ticks: per DB = 3 (db + admin role + ro role) + per schema (if any) = 3 schemas × 2 roles = 6
+        # Calculate total ticks: per DB = 2 (db-level roles) + per schema (if any) = 3 schemas × 2 roles = 6
         def db_ticks(db):
-            has = db in DEFAULT_DBS or st.session_state.extra_dbs_schemas.get(db, True)
+            has = (db in selected_default_dbs) or st.session_state.extra_dbs_schemas.get(db, True)
             return 3 + (len(DEFAULT_SCHEMAS) * 2 if has else 0)
         total_steps = sum(db_ticks(d) for d in all_dbs) + 4  # +4 for user steps
         _counter = [0]   # mutable list avoids nonlocal (module-level scope)
@@ -526,7 +554,7 @@ elif st.session_state.step == 3:
         log("── SCHEMAS & SCHEMA-LEVEL ROLES ───────────────────", "hdr")
         for db in all_dbs:
             db_name     = f"{db}_DB"
-            has_schemas = (db in DEFAULT_DBS) or st.session_state.extra_dbs_schemas.get(db, True)
+            has_schemas = (db in selected_default_dbs) or st.session_state.extra_dbs_schemas.get(db, True)
             if not has_schemas:
                 log(f"⏭️  {db_name} — schema creation skipped (user choice)", "inf")
                 continue
@@ -638,7 +666,8 @@ elif st.session_state.step == 4:
 
     st.markdown('<div class="card-title">🎉 Setup Complete — Download Your Credentials</div>', unsafe_allow_html=True)
 
-    all_dbs = DEFAULT_DBS + st.session_state.extra_dbs
+    selected_default_dbs = [db for db in DEFAULT_DBS if st.session_state.default_dbs_selected.get(db, True)]
+    all_dbs = selected_default_dbs + st.session_state.extra_dbs
 
     # ── Summary table ──
     st.markdown("### 🗄️ Objects Created")
@@ -646,7 +675,7 @@ elif st.session_state.step == 4:
         db_name     = f"{db}_DB"
         admin_role  = f"ROLE_{db}_DB_ADMIN"
         ro_role     = f"ROLE_{db}_DB_RO"
-        has_schemas = (db in DEFAULT_DBS) or st.session_state.extra_dbs_schemas.get(db, True)
+        has_schemas = (db in selected_default_dbs) or st.session_state.extra_dbs_schemas.get(db, True)
 
         with st.expander(f"**{db_name}**", expanded=False):
             st.markdown(f"**DB-level roles:**")
